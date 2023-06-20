@@ -1,0 +1,294 @@
+trigger:
+  branches:
+    include:
+    - refs/heads/master
+jobs:
+- job: Job_1
+  displayName: Agent job 1
+  pool:
+    name: manual-pipeline-agent
+  steps:
+  - checkout: self
+    clean: true
+    fetchTags: false
+  - task: Bash@3
+    displayName: Bash Script
+    inputs:
+      targetType: inline
+      script: >+
+        #!/bin/bash
+
+        ls -lrt
+
+        pwd
+
+        sudo apt install -y apt-transport-https ca-certificates curl software-properties-common build-essential
+
+                curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+                sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+
+                sudo apt update -y
+
+                sudo apt install -y docker-ce zip
+
+                sudo chmod 666 /var/run/docker.sock
+        docker --version
+
+
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/3.1.2/yq_linux_amd64
+
+        sudo chmod a+x /usr/local/bin/yq
+
+        yq --version
+
+
+        export CTP_BUILD_NUMBER=001
+
+        echo "CTP_BUILD_NUMBER = ${CTP_BUILD_NUMBER}"
+
+
+        echo "============= logging into docker hub ==============="
+
+        docker logout
+
+        docker login -u colortokens -p dckr_pat_idVGmBAJxRku0dNmYP44SYv9OWc
+
+        ret=$?
+
+        echo "ret=$ret"
+
+        if [ $ret -ne 0 ]
+
+        then
+
+        echo "=================== Failed to login into docker hub ==============="
+
+        exit 1
+
+        fi
+
+
+
+
+
+        echo "CTP_BUILD_NUMBER = ${BUILD_NUMBER}"
+
+        echo "Branch = ${BRANCH}"
+
+
+        function do_install_nodejs_8_9_4 {
+
+        echo "=============== Node version installed is : `node -v`========================="
+
+        NODE_VERSION="8.9.4-1nodesource1"
+
+        if [ "$(dpkg -s nodejs | grep Version | cut -d ' ' -f 2)" != "$NODE_VERSION" ]; then
+
+        sudo dpkg --purge --force-all nodejs
+
+        sudo rm -rf ~/.npm ~/.node-gyp
+
+        download_file=ct-nodejs_8_9_4.deb
+
+        if [ -f "/tmp/${download_file}" ]; then
+
+        echo "$download_file found in /tmp/${download_file}."
+
+        else
+
+        echo "/tmp/${download_file} not found."
+
+        wget -q -O /tmp/${download_file} https://deb.nodesource.com/node_8.x/pool/main/n/nodejs/nodejs_8.9.4-1nodesource1_amd64.deb
+
+        fi
+
+        sudo dpkg -i /tmp/${download_file}
+
+        else
+
+        echo "NodeJS already installed at required version (${NODE_VERSION}). Skipping."
+
+        fi
+
+        }
+
+
+
+        function do_install_nodejs_10_16_0 {
+
+        echo "=============== Node version installed is : `node -v`========================="
+
+        NODE_VERSION="10.16.0-1nodesource1"
+
+        if [ "$(dpkg -s nodejs | grep Version | cut -d ' ' -f 2)" != "$NODE_VERSION" ]; then
+
+        sudo dpkg --purge --force-all nodejs
+
+        sudo rm -rf ~/.npm ~/.node-gyp
+
+        download_file=ct-nodejs_10_16_0.deb
+
+        if [ -f "/tmp/${download_file}" ]; then
+
+        echo "$download_file found in /tmp/${download_file}."
+
+        else
+
+        echo "/tmp/${download_file} not found."
+
+        wget -q -O /tmp/${download_file} https://deb.nodesource.com/node_10.x/pool/main/n/nodejs/nodejs_10.16.0-1nodesource1_amd64.deb
+
+        fi
+
+        sudo dpkg -i /tmp/${download_file}
+
+        else
+
+        echo "NodeJS already installed at required version (${NODE_VERSION}). Skipping."
+
+        fi
+
+        }
+
+
+        echo "===================== Setting the DOCKER_IMAGE_TAG as env variable ====================="
+
+        export DOCKER_IMAGE_TAG=azure-notary
+
+        echo "DOCKER_IMAGE_TAG=${DOCKER_IMAGE_TAG}"
+
+
+        echo "================ installing npm packages for Angular app ================="
+
+        echo "===================== Setting the DOCKER_IMAGE_TAG as env variable ====================="
+
+        export DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG}"
+
+        echo "DOCKER_IMAGE_TAG=${DOCKER_IMAGE_TAG}"
+
+        export CT_BUILD_JENKINS="True"
+
+
+        echo "*************************************************************************************"
+
+
+        echo -e "\n"
+
+        echo "====================== Installing the node 10 for the ng-colormaster and notary ===================="
+
+        do_install_nodejs_10_16_0
+
+        echo -e "\n"
+
+        echo "=============== Node version installed is : `node -v`========================="
+
+        echo -e "\n"
+
+        echo "*************************************************************************************"
+
+
+        echo "====================== Building the notary ======================"
+
+        cd microservices/
+
+
+        time bash -x ./build.sh build
+
+        ret=$?
+
+        echo "ret=$ret"
+
+        if [ $ret -ne 0 ]
+
+        then
+
+        echo "=================== notary build failed ==================="
+
+        exit 1
+
+        fi
+
+
+        echo "====================== Building the notary docker image ======================"
+
+
+        time bash -x ./build.sh build-image
+
+        ret=$?
+
+        echo "ret=$ret"
+
+        if [ $ret -ne 0 ]
+
+        then
+
+        echo "=================== notary docker image build failed ==================="
+
+        exit 1
+
+        fi
+
+
+        echo "========== Pushing the docker images to dockerhub ====================="
+
+        time bash -x ./build.sh push
+
+        ret=$?
+
+        echo "ret=$ret"
+
+        if [ $ret -ne 0 ]
+
+        then
+
+        echo "=================== Failed to push the notary docker image ==================="
+
+        exit 1
+
+        fi
+
+
+        echo "========== cleaning the notary docker images ========================="
+
+
+        time bash -x ./build.sh clean-image
+
+        ret=$?
+
+        echo "ret=$ret"
+
+        if [ $ret -ne 0 ]
+
+        then
+
+        echo "=================== Cleaning the notary docker image failed ==================="
+
+        exit 1
+
+        fi
+
+
+        echo "====================== Generating helm-charts ======================"
+
+
+        time bash -x ./build.sh build-helm
+
+        ret=$?
+
+        echo "ret=$ret"
+
+        if [ $ret -ne 0 ]
+
+        then
+
+        echo "=================== Generating helm-charts failed ==================="
+
+        exit 1
+
+        fi
+
+
+
+
+...
